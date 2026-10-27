@@ -56,6 +56,10 @@ func (b *SuiBackend) Call(ctx context.Context, method string, params json.RawMes
 		return b.transaction(ctx, params)
 	case "sui_executeTransactionBlock":
 		return b.executeTransaction(ctx, params)
+	case "suix_listBalances":
+		return b.listBalances(ctx, params)
+	case "sui_getServiceInfo":
+		return b.serviceInfo(ctx, params)
 	case "suix_getBalance":
 		return b.balance(ctx, params)
 	case "suix_getCoinMetadata":
@@ -354,7 +358,11 @@ func (b *SuiBackend) balance(ctx context.Context, params json.RawMessage) (any, 
 	if err != nil {
 		return nil, err
 	}
-	return legacyBalance(response.GetBalance()), nil
+	item, err := legacyBalance(response.GetBalance())
+	if err != nil {
+		return nil, err
+	}
+	return item, nil
 }
 
 func (b *SuiBackend) coinMetadata(ctx context.Context, params json.RawMessage) (any, error) {
@@ -429,8 +437,15 @@ func (b *SuiBackend) allBalances(ctx context.Context, params json.RawMessage) (a
 		if err != nil {
 			return nil, err
 		}
+		if response == nil {
+			return nil, legacyIncompatibleError("balance response missing")
+		}
 		for _, balance := range response.GetBalances() {
-			balances = append(balances, legacyBalance(balance))
+			item, err := legacyBalance(balance)
+			if err != nil {
+				return nil, err
+			}
+			balances = append(balances, item)
 		}
 		pageToken = response.GetNextPageToken()
 		if len(pageToken) == 0 {
@@ -444,11 +459,80 @@ func (b *SuiBackend) allBalances(ctx context.Context, params json.RawMessage) (a
 	return balances, nil
 }
 
-func legacyBalance(balance *rpcv2.Balance) map[string]any {
-	return map[string]any{
-		"coinType":     balance.GetCoinType(),
-		"totalBalance": strconv.FormatUint(balance.GetBalance(), 10),
+func legacyBalance(balance *rpcv2.Balance) (map[string]any, error) {
+	if balance == nil || strings.TrimSpace(balance.GetCoinType()) == "" || balance.Balance == nil || balance.AddressBalance == nil {
+		return nil, legacyIncompatibleError("balance response missing coin type, total balance or address balance")
 	}
+	if balance.GetAddressBalance() > balance.GetBalance() || (balance.CoinBalance != nil && balance.GetCoinBalance() != balance.GetBalance()-balance.GetAddressBalance()) {
+		return nil, legacyIncompatibleError("inconsistent balance components")
+	}
+	return map[string]any{
+		"coinType":              balance.GetCoinType(),
+		"totalBalance":          strconv.FormatUint(balance.GetBalance(), 10),
+		"fundsInAddressBalance": strconv.FormatUint(balance.GetAddressBalance(), 10),
+	}, nil
+}
+
+func (b *SuiBackend) listBalances(ctx context.Context, params json.RawMessage) (any, error) {
+	values, err := positionalParams(params, 1, 3)
+	if err != nil {
+		return nil, err
+	}
+	var owner string
+	if json.Unmarshal(values[0], &owner) != nil || strings.TrimSpace(owner) == "" {
+		return nil, invalidParamsError()
+	}
+	size := uint32(50)
+	if len(values) > 1 && !isNull(values[1]) {
+		if json.Unmarshal(values[1], &size) != nil || size < 1 || size > 1000 {
+			return nil, invalidParamsError()
+		}
+	}
+	var token []byte
+	if len(values) > 2 && !isNull(values[2]) {
+		var encoded string
+		if json.Unmarshal(values[2], &encoded) != nil {
+			return nil, invalidParamsError()
+		}
+		token, err = base64.StdEncoding.Strict().DecodeString(encoded)
+		if err != nil {
+			return nil, invalidParamsError()
+		}
+	}
+	response, err := b.state.ListBalances(ctx, &rpcv2.ListBalancesRequest{Owner: &owner, PageSize: &size, PageToken: token})
+	if err != nil {
+		return nil, err
+	}
+	if response == nil {
+		return nil, legacyIncompatibleError("balance response missing")
+	}
+	balances := make([]map[string]any, 0, len(response.GetBalances()))
+	for _, balance := range response.GetBalances() {
+		item, err := legacyBalance(balance)
+		if err != nil {
+			return nil, err
+		}
+		balances = append(balances, item)
+	}
+	var next any
+	if len(response.GetNextPageToken()) > 0 {
+		next = base64.StdEncoding.EncodeToString(response.GetNextPageToken())
+	}
+	return map[string]any{"balances": balances, "nextPageToken": next}, nil
+}
+
+func (b *SuiBackend) serviceInfo(ctx context.Context, params json.RawMessage) (any, error) {
+	if !validEmptyParams(params) {
+		return nil, invalidParamsError()
+	}
+	response, err := b.ledger.GetServiceInfo(ctx, &rpcv2.GetServiceInfoRequest{})
+	if err != nil {
+		return nil, err
+	}
+	if response == nil || strings.TrimSpace(response.GetChainId()) == "" || response.Epoch == nil {
+		return nil, legacyIncompatibleError("service info missing chain ID or epoch")
+	}
+	return map[string]any{"chainId": response.GetChainId(), "epoch": strconv.FormatUint(response.GetEpoch(), 10)}, nil
 }
 
 func (b *SuiBackend) totalSupply(ctx context.Context, params json.RawMessage) (any, error) {

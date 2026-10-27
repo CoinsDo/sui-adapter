@@ -26,7 +26,7 @@ func (f *pagedBalanceClient) ListBalances(_ context.Context, req *rpcv2.ListBala
 		if len(req.GetPageToken()) != 0 {
 			return nil, errors.New("unexpected initial token")
 		}
-		return &rpcv2.ListBalancesResponse{Balances: []*rpcv2.Balance{{CoinType: ptr("first"), Balance: ptr(uint64(1))}}, NextPageToken: []byte("next")}, nil
+		return &rpcv2.ListBalancesResponse{Balances: []*rpcv2.Balance{{CoinType: ptr("first"), Balance: ptr(uint64(1)), AddressBalance: ptr(uint64(0))}}, NextPageToken: []byte("next")}, nil
 	}
 	if string(req.GetPageToken()) != "next" {
 		return nil, errors.New("missing continuation")
@@ -37,7 +37,7 @@ func (f *pagedBalanceClient) ListBalances(_ context.Context, req *rpcv2.ListBala
 	if f.repeat {
 		return &rpcv2.ListBalancesResponse{NextPageToken: []byte("next")}, nil
 	}
-	return &rpcv2.ListBalancesResponse{Balances: []*rpcv2.Balance{{CoinType: ptr("second"), Balance: ptr(uint64(2))}}}, nil
+	return &rpcv2.ListBalancesResponse{Balances: []*rpcv2.Balance{{CoinType: ptr("second"), Balance: ptr(uint64(2)), AddressBalance: ptr(uint64(0))}}}, nil
 }
 
 func TestAllBalancesPagination(t *testing.T) {

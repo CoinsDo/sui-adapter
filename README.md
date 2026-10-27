@@ -18,6 +18,8 @@ files.
 - `sui_getTransactionBlock`
 - `sui_executeTransactionBlock`
 - `suix_getBalance`
+- `suix_listBalances` (custom extension)
+- `sui_getServiceInfo` (custom extension)
 - `suix_getCoinMetadata`
 - `suix_getCoins`
 - `suix_getAllCoins`
@@ -181,7 +183,7 @@ digest rather than immediately creating a replacement transaction.
 
 ### Other compatibility boundaries
 
-- `suix_getBalance` and `suix_getAllBalances` return `coinType` and `totalBalance`,
+- `suix_getBalance` and `suix_getAllBalances` return `coinType`, `totalBalance`, and `fundsInAddressBalance`,
   but omit `coinObjectCount` and `lockedBalance`, which gRPC does not supply.
 - `suix_getAllBalances` follows every page and fails the entire request if any
   page fails; a partial list is never returned as a complete list.
@@ -194,6 +196,53 @@ digest rather than immediately creating a replacement transaction.
 - `SimulateTransaction` can evaluate against current object state where legacy
   dry-run rejected stale object references. The adapter preserves that upstream
   difference rather than generating a synthetic JSON-RPC error.
+
+## Balance and service information extensions
+
+`suix_getBalance` accepts `[address, coinType]`; omitted or null `coinType`
+continues to default to `0x2::sui::SUI`. All balance methods return:
+
+```json
+{"coinType":"0x2::sui::SUI","totalBalance":"100","fundsInAddressBalance":"30"}
+```
+
+Coin type strings are preserved from upstream (which may use padded addresses).
+Amounts are decimal strings in the smallest unit. `totalBalance` already includes
+`fundsInAddressBalance`: do not add them together. Missing coin type, total, or
+address balance returns a compatibility error rather than an invented zero.
+Explicit zero is valid. Address balance must not exceed total; when upstream
+also provides coin balance, the components must match the total. This strict
+requirement can reject older upstreams that omit address balance.
+
+`suix_listBalances` is a custom JSON-RPC extension mapped to
+`StateService.ListBalances`. It accepts `[address, pageSize, pageToken]` and
+returns exactly one upstream page:
+
+```json
+{"balances":[],"nextPageToken":null}
+```
+
+Page size defaults to 50 when omitted or null; explicit values must be integers
+from 1 through 1000. Invalid sizes, malformed Base64 tokens, and invalid parameter
+types return `-32602`. Tokens are opaque bytes encoded as Base64; omitted, null,
+or empty tokens start at the first page. Pass the returned token back with the
+same address and page size. An empty page can still have a next token; only a
+null token indicates completion. Upstream errors are propagated, not converted
+to empty pages. `suix_getAllBalances` retains its existing all-pages behavior and
+uses the same balance fields and validation.
+
+`sui_getServiceInfo` is a custom extension accepting `[]`, mapped to
+`LedgerService.GetServiceInfo`:
+
+```json
+{"chainId":"69WiPg3DAQiwdxfncX6wYQ2siKwAe6L9BZthQea3JNMD","epoch":"1264"}
+```
+
+Values above are illustrative. `chainId` is the complete genesis checkpoint
+digest, not the short legacy chain identifier. Epoch is queried on every call
+and returned as a decimal string; it reflects the upstream node's highest
+executed checkpoint, not a guarantee of network-wide freshness. Missing fields
+fail explicitly. This extension does not implement `sui_getChainIdentifier`.
 
 ## Configuration
 

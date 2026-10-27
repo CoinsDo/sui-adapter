@@ -227,7 +227,7 @@ func TestBalanceUsesGRPCBalanceWithoutLockedBalance(t *testing.T) {
 		balanceResponse: &rpcv2.GetBalanceResponse{
 			Balance: &rpcv2.Balance{
 				CoinType: ptr("0x2::sui::SUI"),
-				Balance:  ptr(uint64(12345)),
+				Balance:  ptr(uint64(12345)), AddressBalance: ptr(uint64(0)),
 			},
 		},
 	}
@@ -337,8 +337,8 @@ func TestAllBalancesUsesGRPCBalancesWithoutLockedBalance(t *testing.T) {
 		listBalancesResponses: []*rpcv2.ListBalancesResponse{
 			{
 				Balances: []*rpcv2.Balance{
-					{CoinType: ptr("0x2::sui::SUI"), Balance: ptr(uint64(100))},
-					{CoinType: ptr("0x2::foo::FOO"), Balance: ptr(uint64(200))},
+					{CoinType: ptr("0x2::sui::SUI"), Balance: ptr(uint64(100)), AddressBalance: ptr(uint64(0))},
+					{CoinType: ptr("0x2::foo::FOO"), Balance: ptr(uint64(200)), AddressBalance: ptr(uint64(0))},
 				},
 			},
 		},
