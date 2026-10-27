@@ -460,8 +460,16 @@ func (b *SuiBackend) allBalances(ctx context.Context, params json.RawMessage) (a
 }
 
 func legacyBalance(balance *rpcv2.Balance) (map[string]any, error) {
-	if balance == nil || strings.TrimSpace(balance.GetCoinType()) == "" || balance.Balance == nil || balance.AddressBalance == nil {
-		return nil, legacyIncompatibleError("balance response missing coin type, total balance or address balance")
+	if balance == nil || strings.TrimSpace(balance.GetCoinType()) == "" || balance.Balance == nil {
+		return nil, legacyIncompatibleError("balance response missing coin type or total balance")
+	}
+	// Total = address + coin, with unsigned components. A missing address
+	// component is provably zero only if total is explicitly zero, or an
+	// explicitly supplied coin balance accounts for the entire total.
+	// Supplied contradictory components must still fail validation below.
+	if balance.AddressBalance == nil && balance.GetBalance() != 0 &&
+		(balance.CoinBalance == nil || balance.GetCoinBalance() != balance.GetBalance()) {
+		return nil, legacyIncompatibleError("balance response missing address balance without proof of zero")
 	}
 	if balance.GetAddressBalance() > balance.GetBalance() || (balance.CoinBalance != nil && balance.GetCoinBalance() != balance.GetBalance()-balance.GetAddressBalance()) {
 		return nil, legacyIncompatibleError("inconsistent balance components")

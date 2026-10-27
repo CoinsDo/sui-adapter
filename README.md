@@ -208,11 +208,17 @@ continues to default to `0x2::sui::SUI`. All balance methods return:
 
 Coin type strings are preserved from upstream (which may use padded addresses).
 Amounts are decimal strings in the smallest unit. `totalBalance` already includes
-`fundsInAddressBalance`: do not add them together. Missing coin type, total, or
-address balance returns a compatibility error rather than an invented zero.
-Explicit zero is valid. Address balance must not exceed total; when upstream
-also provides coin balance, the components must match the total. This strict
-requirement can reject older upstreams that omit address balance.
+`fundsInAddressBalance`: do not add them together. Missing coin type or total
+always returns a compatibility error rather than an invented zero. If the total
+is explicitly present and zero, omitted address/coin components are safely zero:
+the total is the sum of these nonnegative components. Any supplied nonzero
+component still makes that response invalid. For a nonzero total, a missing
+address balance is accepted as zero only if an explicitly supplied coin balance
+equals the total. Otherwise it fails; no subtraction fallback is used to infer
+a positive address balance. Address balance must not exceed total; when upstream also
+provides coin balance, the components must match the total. These checks apply
+to single, paginated, and all-balances responses. Upstreams omitting
+address balance without either proof of zero remain incompatible.
 
 `suix_listBalances` is a custom JSON-RPC extension mapped to
 `StateService.ListBalances`. It accepts `[address, pageSize, pageToken]` and
